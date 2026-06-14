@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API = axios.create({
-  baseURL: 'http://213.136.66.99:4010/api',
+  baseURL: import.meta.env.VITE_API_URL || 'https://remix.vdscan.io/api',
   headers: { 'Content-Type': 'application/json' }
 });
 

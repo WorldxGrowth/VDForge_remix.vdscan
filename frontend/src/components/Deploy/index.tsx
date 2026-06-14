@@ -259,11 +259,27 @@ export default function DeployPanel() {
   const [collapsedContracts, setCollapsedContracts] = useState<Record<number, boolean>>({});
   const [verifyModal, setVerifyModal] = useState<any | null>(null);
 
+  // MetaMask specifically select karo
+  const getMetaMaskProvider = () => {
+    if (!window.ethereum) return null;
+    if ((window.ethereum as any)?.providers?.length) {
+      const mm = (window.ethereum as any).providers.find(
+        (p: any) => p.isMetaMask && !p.isPhantom
+      );
+      if (mm) return mm;
+    }
+    if ((window.ethereum as any)?.isMetaMask && !(window.ethereum as any)?.isPhantom) {
+      return window.ethereum;
+    }
+    return window.ethereum || null;
+  };
+
   useEffect(() => {
     const detect = async () => {
-      if (!window.ethereum) return;
+      const ethereum = getMetaMaskProvider();
+      if (!ethereum) return;
       try {
-        const p = new ethers.BrowserProvider(window.ethereum);
+        const p = new ethers.BrowserProvider(ethereum);
         const n = await p.getNetwork();
         const id = n.chainId.toString();
         const info = getChainInfo(id);
@@ -271,8 +287,9 @@ export default function DeployPanel() {
       } catch {}
     };
     detect();
-    window.ethereum?.on?.('chainChanged', detect);
-    return () => window.ethereum?.removeListener?.('chainChanged', detect);
+    const ethereum = getMetaMaskProvider();
+    ethereum?.on?.('chainChanged', detect);
+    return () => ethereum?.removeListener?.('chainChanged', detect);
   }, []);
 
   const contracts = compileResult?.contracts || {};
@@ -294,11 +311,12 @@ export default function DeployPanel() {
     setCollapsedContracts(prev => ({ ...prev, [i]: !prev[i] }));
 
   const handleDeploy = async () => {
-    if (!currentContract || !window.ethereum) return;
+    const ethereum = getMetaMaskProvider();
+    if (!currentContract || !ethereum) return;
     setIsDeploying(true);
     addLog(`Deploying ${selectedContract} on ${walletChain?.name || 'Unknown'}...`);
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const network = await provider.getNetwork();
       const chainId = network.chainId.toString();
@@ -373,7 +391,8 @@ export default function DeployPanel() {
     const key = `${dc.address}-${func.name}`;
     const isRead = func.stateMutability === 'view' || func.stateMutability === 'pure';
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const ethereum = getMetaMaskProvider();
+      const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(dc.address, dc.abi, signer);
       const inputStr = callInputs[key] || '';
@@ -478,7 +497,7 @@ export default function DeployPanel() {
 
       {/* Deploy button */}
       <button onClick={handleDeploy}
-        disabled={isDeploying || !selectedContract || !window.ethereum || !walletChain}
+        disabled={isDeploying || !selectedContract || !getMetaMaskProvider() || !walletChain}
         style={{
           width: '100%', padding: '10px', borderRadius: '6px', border: 'none',
           background: isDeploying ? '#1a1a2e'

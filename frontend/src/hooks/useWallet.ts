@@ -3,6 +3,24 @@ import { authAPI, projectsAPI, filesAPI } from '../api';
 
 const LOCAL_KEY = 'vdforge_local_files';
 
+// ── MetaMask specifically select karo — Phantom/other wallets avoid ──
+const getMetaMaskProvider = () => {
+  if (typeof window === 'undefined' || !window.ethereum) return null;
+  // Multiple providers (MetaMask + Phantom dono installed)
+  if ((window.ethereum as any)?.providers?.length) {
+    const mm = (window.ethereum as any).providers.find(
+      (p: any) => p.isMetaMask && !p.isPhantom
+    );
+    if (mm) return mm;
+  }
+  // Single provider — MetaMask only
+  if ((window.ethereum as any)?.isMetaMask && !(window.ethereum as any)?.isPhantom) {
+    return window.ethereum;
+  }
+  // Fallback
+  return window.ethereum || null;
+};
+
 export const useWallet = () => {
   const { wallet, isLoggedIn, setWallet, setToken, setProjects, setCurrentProject, setFiles, setCurrentFile, addLog } = useStore();
 
@@ -22,31 +40,24 @@ export const useWallet = () => {
       }
       setCurrentProject(targetProject);
 
-      // Always check local files and migrate any that aren't in DB yet
       const saved = localStorage.getItem(LOCAL_KEY);
       const localFiles = saved ? JSON.parse(saved) : [];
       const realLocal = localFiles.filter((f: any) => f.id && f.name && f.content !== undefined);
 
       if (realLocal.length > 0) {
-        // Get existing DB files to avoid duplicates
         const { data: fData } = await filesAPI.getAll(targetProject.id);
         const dbFiles = fData.files || [];
         const dbNames = dbFiles.map((f: any) => f.name);
-
-        // Only migrate files not already in DB
         const toMigrate = realLocal.filter((f: any) => !dbNames.includes(f.name));
 
         if (toMigrate.length > 0) {
           addLog(`Syncing ${toMigrate.length} local file(s) to cloud...`);
           for (const f of toMigrate) {
-            try {
-              await filesAPI.create(targetProject.id, f.name, f.content || '');
-            } catch {}
+            try { await filesAPI.create(targetProject.id, f.name, f.content || ''); } catch {}
           }
           addLog(`Sync done`);
         }
 
-        // Reload after migration
         const { data: fData2 } = await filesAPI.getAll(targetProject.id);
         const allFiles = fData2.files || [];
         setFiles(allFiles);
@@ -67,8 +78,10 @@ export const useWallet = () => {
 
   const connect = async () => {
     try {
-      if (!window.ethereum) {
-        alert('MetaMask not found!');
+      const ethereum = getMetaMaskProvider();
+
+      if (!ethereum) {
+        alert('MetaMask not found! Please install MetaMask extension.');
         return;
       }
 
@@ -78,14 +91,14 @@ export const useWallet = () => {
         localStorage.setItem(LOCAL_KEY, JSON.stringify(currentFiles));
       }
 
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
       const walletAddress = accounts[0];
       setWallet(walletAddress);
 
       const { data } = await authAPI.getNonce(walletAddress);
       const message = data.message;
 
-      const signature = await window.ethereum.request({
+      const signature = await ethereum.request({
         method: 'personal_sign',
         params: [message, walletAddress],
       });
@@ -102,7 +115,6 @@ export const useWallet = () => {
   };
 
   const disconnect = () => {
-    // Save current DB files to localStorage before disconnect
     const currentFiles = useStore.getState().files;
     if (currentFiles.length > 0) {
       localStorage.setItem(LOCAL_KEY, JSON.stringify(currentFiles));
@@ -113,7 +125,6 @@ export const useWallet = () => {
     setProjects([]);
     setCurrentProject(null);
 
-    // Show saved local files
     const saved = localStorage.getItem(LOCAL_KEY);
     const localFiles = saved ? JSON.parse(saved) : [];
     setFiles(localFiles);
